@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commute Delays</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f4f3f0;
+    --surface: #fcfcfb;
+    --border: #e4e2dc;
+    --track: #e9e7e1;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #77756f;
+    --series-1: #2a78d6;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #111110;
+      --surface: #1a1a19;
+      --border: #2e2e2b;
+      --track: #2e2e2b;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --text-muted: #96958c;
+      --series-1: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #111110;
+    --surface: #1a1a19;
+    --border: #2e2e2b;
+    --track: #2e2e2b;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #96958c;
+    --series-1: #3987e5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 40px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 2px 0 18px; color: var(--text-secondary); font-size: 14px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    min-width: 0;
+  }
+  .span-2 { grid-column: 1 / -1; }
+  .label { font-size: 13px; color: var(--text-secondary); margin: 0 0 4px; font-weight: 500; }
+  .value { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .value small { font-size: 15px; font-weight: 500; color: var(--text-secondary); margin-left: 3px; letter-spacing: 0; }
+  .sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+
+  /* compensation meter */
+  .hero { font-size: 52px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .hero span { font-size: 22px; color: var(--text-secondary); font-weight: 500; letter-spacing: 0; }
+  .meter { display: flex; gap: 3px; margin: 14px 0 8px; }
+  .meter i { flex: 1; height: 12px; border-radius: 4px; background: var(--track); }
+  .meter i.on { background: var(--series-1); }
+
+  /* average per train */
+  .rows { display: grid; gap: 12px; }
+  .row-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+  .row-head b { font-weight: 600; }
+  .row-head .num { font-variant-numeric: tabular-nums; color: var(--text-primary); white-space: nowrap; }
+  .row-head .route { color: var(--text-muted); font-size: 13px; }
+  .bar { height: 10px; background: var(--track); border-radius: 4px; margin-top: 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+
+  /* last trips */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 500; color: var(--text-secondary); font-size: 12px; padding: 0 6px 8px 0; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 6px 9px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td .route { display: block; color: var(--text-muted); font-size: 12px; }
+  .r { text-align: right; padding-right: 0; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.good { background: var(--good); }
+  .dot.warning { background: var(--warning); }
+  .dot.critical { background: var(--critical); }
+
+  .msg { color: var(--text-secondary); }
+  footer { margin-top: 16px; font-size: 12px; color: var(--text-muted); }
+  @media (max-width: 420px) {
+    .value { font-size: 28px; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Commute delays</h1>
+    <p>Brussel-Noord ⇄ Leuven · weekdays</p>
+  </header>
+  <div id="app"><p class="msg">Loading…</p></div>
+  <footer id="foot"></footer>
+</main>
+
+<script>
+// NMBS repeated-delay compensation: this many delays of at least this many minutes in the window below.
+const COMP_NEEDED = 10;
+const COMP_MIN_DELAY = 30;
+const COMP_WINDOW_MONTHS = 6;
+const COMP_COUNT_CANCELLED = true; // a cancelled train counts as a long delay
+
+const STATION = { "Brussels-North": "Brussel-Noord", "Leuven": "Leuven" };
+const name = s => STATION[s] || s;
+
+function parseCSV(text) {
+  const [head, ...lines] = text.trim().split(/\r?\n/);
+  const keys = head.split(",");
+  return lines.filter(Boolean).map(line => {
+    const vals = line.split(",");
+    const r = Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+    r.delay = Number(r.delay_min);
+    r.cancelled = r.cancelled === "yes";
+    r.day = new Date(r.date + "T00:00:00");
+    return r;
+  });
+}
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const lateMin = r => r.cancelled ? 0 : Math.max(0, r.delay);   // being early doesn't cancel out delays
+const fmtDate = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+const fmtAvg = n => (Math.round(n * 10) / 10).toLocaleString("en-GB", { minimumFractionDigits: 1 });
+
+function status(r) {
+  if (r.cancelled) return ["critical", "Cancelled"];
+  if (r.delay >= COMP_MIN_DELAY) return ["critical", `+${r.delay} min`];
+  if (r.delay >= 5) return ["warning", `+${r.delay} min`];
+  if (r.delay > 0) return ["good", `+${r.delay} min`];
+  return ["good", r.delay < 0 ? `${r.delay} min` : "On time"];
+}
+
+function render(rows) {
+  const app = document.getElementById("app");
+  if (!rows.length) { app.innerHTML = '<p class="msg">No trips logged yet.</p>'; return; }
+
+  const now = new Date();
+  const monthRows = rows.filter(r => r.day.getFullYear() === now.getFullYear() && r.day.getMonth() === now.getMonth());
+  const yearRows = rows.filter(r => r.day.getFullYear() === now.getFullYear());
+  const sum = rs => rs.reduce((t, r) => t + lateMin(r), 0);
+
+  // compensation window
+  const since = new Date(now.getFullYear(), now.getMonth() - COMP_WINDOW_MONTHS, now.getDate());
+  const qualifying = rows.filter(r => r.day >= since && (r.delay >= COMP_MIN_DELAY || (COMP_COUNT_CANCELLED && r.cancelled)));
+  const compCount = qualifying.length;
+  const nCancelled = qualifying.filter(r => r.cancelled).length;
+  const reached = compCount >= COMP_NEEDED;
+
+  // average per train (cancelled trips excluded from the average)
+  const byTrain = new Map();
+  for (const r of rows) {
+    const t = byTrain.get(r.train) || { train: r.train, from: r.from, to: r.to, time: r.scheduled_time, ran: [], cancelled: 0 };
+    r.cancelled ? t.cancelled++ : t.ran.push(r);
+    byTrain.set(r.train, t);
+  }
+  const trains = [...byTrain.values()].map(t => ({
+    ...t,
+    avg: t.ran.length ? t.ran.reduce((s, r) => s + Math.max(0, r.delay), 0) / t.ran.length : 0,
+    worst: t.ran.reduce((w, r) => (!w || r.delay > w.delay ? r : w), null),
+  })).sort((a, b) => b.avg - a.avg);
+  const maxAvg = Math.max(1, ...trains.map(t => t.avg));
+  const worst = trains[0];
+
+  const last = [...rows].sort((a, b) => b.day - a.day || b.scheduled_time.localeCompare(a.scheduled_time)).slice(0, 10);
+  const monthName = now.toLocaleDateString("en-GB", { month: "long" });
+
+  app.innerHTML = `
+  <div class="grid">
+    <section class="card span-2">
+      <p class="label">Repeated-delay compensation · last ${COMP_WINDOW_MONTHS} months</p>
+      <div class="hero">${compCount}<span> / ${COMP_NEEDED}</span></div>
+      <div class="meter" role="img" aria-label="${compCount} of ${COMP_NEEDED} delays needed">
+        ${Array.from({ length: COMP_NEEDED }, (_, i) => `<i class="${i < compCount ? "on" : ""}"></i>`).join("")}
+      </div>
+      <div class="sub">${reached
+        ? "Threshold reached — you can apply for compensation with NMBS."
+        : `${COMP_NEEDED - compCount} more delay${COMP_NEEDED - compCount === 1 ? "" : "s"} of ${COMP_MIN_DELAY}+ min needed`}
+        ${COMP_COUNT_CANCELLED && nCancelled ? ` · includes ${nCancelled} cancelled` : ""}</div>
+    </section>
+
+    <section class="card">
+      <p class="label">Delay in ${monthName}</p>
+      <div class="value">${sum(monthRows)}<small>min</small></div>
+      <div class="sub">${monthRows.length} trip${monthRows.length === 1 ? "" : "s"}</div>
+    </section>
+    <section class="card">
+      <p class="label">Delay in ${now.getFullYear()}</p>
+      <div class="value">${sum(yearRows)}<small>min</small></div>
+      <div class="sub">${yearRows.length} trip${yearRows.length === 1 ? "" : "s"}</div>
+    </section>
+
+    <section class="card span-2">
+      <p class="label">Worst train</p>
+      <div class="value" style="font-size:26px">${esc(worst.train)} <small>${esc(worst.time)}</small></div>
+      <div class="sub">${esc(name(worst.from))} → ${esc(name(worst.to))} · ${fmtAvg(worst.avg)} min late on average${
+        worst.worst && worst.worst.delay > 0 ? ` · worst +${worst.worst.delay} min on ${fmtDate(worst.worst.day)}` : ""}${
+        worst.cancelled ? ` · ${worst.cancelled}× cancelled` : ""}</div>
+    </section>
+
+    <section class="card span-2">
+      <h2>Average delay per train</h2>
+      <div class="rows">
+        ${trains.map(t => `
+          <div title="${esc(t.train)}: ${fmtAvg(t.avg)} min average over ${t.ran.length} trips${t.cancelled ? `, ${t.cancelled} cancelled` : ""}">
+            <div class="row-head">
+              <span><b>${esc(t.train)}</b> <span class="route">${esc(t.time)} ${esc(name(t.from))} → ${esc(name(t.to))}</span></span>
+              <span class="num">${fmtAvg(t.avg)} min</span>
+            </div>
+            <div class="bar"><i style="width:${(t.avg / maxAvg) * 100}%"></i></div>
+          </div>`).join("")}
+      </div>
+    </section>
+
+    <section class="card span-2">
+      <h2>Last ${last.length} trips</h2>
+      <table>
+        <thead><tr><th>Date</th><th>Train</th><th class="r">Delay</th></tr></thead>
+        <tbody>
+          ${last.map(r => {
+            const [cls, text] = status(r);
+            return `<tr>
+              <td>${fmtDate(r.day)}</td>
+              <td>${esc(r.scheduled_time)} <span class="hide-sm">${esc(r.train)}</span>
+                <span class="route">${esc(name(r.from))} → ${esc(name(r.to))}</span></td>
+              <td class="r"><span class="badge"><span class="dot ${cls}"></span>${text}</span></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </section>
+  </div>`;
+
+  document.getElementById("foot").textContent =
+    `${rows.length} trips logged · last update ${fmtDate(last[0].day)} · delays measured on arrival`;
+}
+
+fetch("commute.csv", { cache: "no-store" })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  .then(text => render(parseCSV(text)))
+  .catch(e => { document.getElementById("app").innerHTML = `<p class="msg">Could not load commute.csv (${esc(e.message)}).</p>`; });
+</script>
+</body>
+</html>
