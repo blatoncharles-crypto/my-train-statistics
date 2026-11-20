@@ -112,6 +112,13 @@
 
   .muted { color: var(--text-muted); }
   .pending { display: block; color: var(--text-muted); font-size: 12px; font-style: italic; }
+  .pending.ask-line { color: var(--text-primary); font-style: normal; font-weight: 600; margin-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { font: inherit; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-primary); cursor: pointer;
+          background: var(--page); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; text-align: left;
+          white-space: nowrap; }
+  .chip small { display: block; color: var(--text-muted); font-size: 12px; }
+  .chip:active { background: var(--track); }
   .pending.ask { color: var(--critical); font-style: normal; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
   td:first-child { white-space: nowrap; }
   td.r { white-space: nowrap; }
@@ -257,8 +264,15 @@ function blankTrip(date, direction) {
   const usual = CFG.trains[direction];
   return { date, direction, train: usual.train, from_station: from, to_station: to, scheduled_departure: usual.departure,
            scheduled_arrival: "", planned_arrival: "", actual_arrival: "", train_delay_min: "", journey_delay_min: "",
-           status: "planned", reason: "", source: "auto", cancelled: "false" };
+           status: "planned", reason: "", source: "auto", cancelled: "false", certainty: "", candidates: "" };
 }
+
+// "IC 506/08:08/planned/7|IC 3607/08:22/disruption/19" -> [{ train, dep, kind, journey }]
+const parseCandidates = text => (text || "").split("|").filter(Boolean).map(part => {
+  const [train, dep, kind, journey] = part.split("/");
+  return { train, dep, kind, journey: Number(journey) };
+});
+const KIND_LABEL = { planned: "usual train", choice: "own choice", disruption: "due to delay" };
 
 // a trip the evening run is done with: it has a journey delay, or the usual train was cancelled
 const hasResult = r => r.journey_delay_min !== "" || (r.status === "planned" && r.cancelled === "true");
@@ -271,7 +285,7 @@ function applyCorrection(row, c) {
   if (c.status === "skipped") return { ...row, status: "skipped", reason: "", train_delay_min: "", journey_delay_min: "" };
   if (c.status === "other") {
     const reason = c.reason === "disruption" ? "disruption" : "choice";
-    if (row.status === "other" && row.source === "manual" && row.train === c.train && row.reason === reason) return row;
+    if (row.status === "other" && row.train === c.train && row.reason === reason) return { ...row, source: "manual" };
     // only the reason changed: the evening run recomputes it from the stored arrival, even for an old day
     if (row.status === "other" && row.train === c.train && row.actual_arrival && row.train_delay_min !== "") {
       if (reason === "choice")
@@ -279,7 +293,8 @@ function applyCorrection(row, c) {
       return { ...row, reason, source: "manual", journey_delay_min: "", recompute: true };
     }
     return { ...row, ...NO_RESULT, status: "other", reason, source: "manual", train: c.train,
-             scheduled_departure: c._departure || "", scheduled_arrival: "" };   // keeps planned_arrival + cancelled
+             scheduled_departure: c._departure || "", scheduled_arrival: "",   // keeps planned_arrival + cancelled
+             journey_delay_min: c._journey ?? "" };                            // known when picked from the check-in candidates
   }
   // planned = undo
   if (row.source === "auto" && row.status === "planned") return row;
@@ -291,7 +306,8 @@ function applyCorrection(row, c) {
       return { ...back, train_delay_min: d, journey_delay_min: d };
     }
   }
-  return { ...blankTrip(row.date, row.direction), planned_arrival: row.planned_arrival, cancelled: row.cancelled || "false" };
+  return { ...blankTrip(row.date, row.direction), planned_arrival: row.planned_arrival, cancelled: row.cancelled || "false",
+           train_delay_min: c._journey ?? "", journey_delay_min: c._journey ?? "" };
 }
 
 function latestCorrections() {
@@ -303,7 +319,7 @@ function latestCorrections() {
 function buildTrips() {
   const latest = latestCorrections();
   const seen = new Set();
-  const corrected = (r, c) => c ? { ...applyCorrection(r, c), corrected: true } : r;
+  const corrected = (r, c) => c ? { ...applyCorrection(r, c), corrected: true, certainty: "", candidates: "" } : r;
   const out = TRIPS.map(r => { seen.add(`${r.date}|${r.direction}`); return corrected(r, latest.get(`${r.date}|${r.direction}`)); });
   // corrected trips the evening run hasn't logged yet (e.g. marked in advance)
   for (const [key, c] of latest) {
@@ -328,6 +344,7 @@ function buildTrips() {
     }
   }
   const decorate = r => ({ ...r, journey: Number(r.journey_delay_min), trainDelay: Number(r.train_delay_min),
+                           uncertain: r.certainty === "uncertain", located: r.certainty === "located", cands: parseCandidates(r.candidates),
                            cancelled: r.cancelled === "true", day: new Date(r.date + "T00:00:00"),
                            from: r.from_station, to: r.to_station, scheduled_time: r.scheduled_departure });
   return { all: out.map(decorate), upcoming: upcoming.map(decorate) };
@@ -355,7 +372,7 @@ function delayCell(r) {
   if (r.status === "skipped") return `<span class="muted">Didn't travel</span>`;
   if (r.journey_delay_min !== "") {
     const [cls, text] = status(r.journey);
-    return `<span class="badge"><span class="dot ${cls}"></span>${text}</span>`;
+    return `<span class="badge"><span class="dot ${cls}"></span>${r.uncertain ? "? " : ""}${text}</span>`;
   }
   if (needsTrain(r)) return `<span class="badge"><span class="dot critical"></span>Cancelled</span>`;
   if (r.status === "other") return `<span class="muted">Other train</span>`;
@@ -365,6 +382,12 @@ function delayCell(r) {
 // extra line under the train: which train was taken, a cancellation, or a delay still to come
 function pendingNote(r) {
   if (r.status === "skipped") return "";
+  if (r.uncertain && r.cands.length) {
+    if (!(canEdit() && isEditable(r.date)))
+      return `<span class="pending">? ${r.cands.map(c => esc(c.train)).join(" or ")}</span>`;
+    return `<span class="pending ask-line">? Which train was it?</span><span class="chips">${r.cands.map((c, i) =>
+      `<button class="chip" data-cand="${i}">${esc(c.dep)} · ${esc(c.train)} <small>${KIND_LABEL[c.kind] || ""} · ${signed(c.journey)}</small></button>`).join("")}</span>`;
+  }
   if (needsTrain(r)) return canEdit() && isEditable(r.date)
     ? `<span class="pending ask" data-ask-train>Cancelled – which train did you take?</span>`
     : `<span class="pending">Usual train cancelled</span>`;
@@ -382,7 +405,7 @@ function tripRow(r) {
   const time = r.scheduled_time || r.train;
   return `<tr${editable ? ` class="editable" data-key="${esc(r.date)}|${esc(r.direction)}"` : ""}>
     <td>${fmtDate(r.day)}</td>
-    <td>${esc(time)} <span class="hide-sm">${r.scheduled_time ? esc(r.train) : ""}</span>
+    <td>${esc(time)}${r.located ? ` <span title="Train found from your check-ins">📍</span>` : ""} <span class="hide-sm">${r.scheduled_time ? esc(r.train) : ""}</span>
       <span class="route">${esc(name(r.from))} → ${esc(name(r.to))}</span>${pendingNote(r)}</td>
     <td class="r">${delayCell(r)}</td>
   </tr>`;
@@ -403,7 +426,9 @@ function render() {
 
   // compensation window
   const since = new Date(now.getFullYear(), now.getMonth() - COMP_WINDOW_MONTHS, now.getDate());
-  const compCount = rows.filter(r => r.day >= since && r.journey >= COMP_MIN_DELAY).length;
+  const compCount = rows.filter(r => r.day >= since && r.journey >= COMP_MIN_DELAY && !r.uncertain).length;
+  // uncertain trips where one of the candidate trains would count: they wait for my confirmation
+  const toConfirm = VIEW.all.filter(r => r.day >= since && r.uncertain && r.cands.some(c => c.journey >= COMP_MIN_DELAY)).length;
   const reached = compCount >= COMP_NEEDED;
 
   // average per train: the usual trains on days I took them (train delay); cancellations counted separately
@@ -439,7 +464,8 @@ function render() {
       </div>
       <div class="sub">${reached
         ? "Threshold reached — you can apply for compensation with NMBS."
-        : `${COMP_NEEDED - compCount} more delay${COMP_NEEDED - compCount === 1 ? "" : "s"} of ${COMP_MIN_DELAY}+ min needed`}
+        : `${COMP_NEEDED - compCount} more delay${COMP_NEEDED - compCount === 1 ? "" : "s"} of ${COMP_MIN_DELAY}+ min needed`}${
+        toConfirm ? ` · ${toConfirm} possible, to confirm` : ""}
         </div>
     </section>
 
@@ -512,7 +538,7 @@ function note(sheet, text, kind = "") {
   n.textContent = text;
 }
 
-function openTrip(key, pickOther = false) {
+function openTrip(key, pickOther = false, pickCandidate = null) {
   const r = [...VIEW.upcoming, ...VIEW.all].find(t => `${t.date}|${t.direction}` === key);
   if (!r) return;
   const usual = CFG.trains[r.direction];
@@ -520,6 +546,10 @@ function openTrip(key, pickOther = false) {
   const sheet = openSheet(`
     <h3>${fmtDate(r.day)} · ${esc(usual.departure)}</h3>
     <p class="sub">${esc(name(r.from))} → ${esc(name(r.to))}</p>
+    ${r.uncertain && r.cands.length ? `<p class="text">Which train was it? (from your check-ins)</p>
+    <div class="opts" style="margin-bottom:14px">${r.cands.map((c, i) => `<button class="opt" data-cand="${i}" aria-pressed="${c.train === r.train}">${esc(c.dep)} · ${esc(c.train)}
+      <small>${KIND_LABEL[c.kind] || ""} · ${signed(c.journey)} min</small></button>`).join("")}</div>
+    <p class="text">Or:</p>` : ""}
     <div class="opts">
       <button class="opt" data-pick="planned" aria-pressed="${state === "planned"}">As planned <small>${esc(usual.train)} ${esc(usual.departure)}</small></button>
       <button class="opt" data-pick="skipped" aria-pressed="${state === "skipped"}">Didn't travel <small>not counted</small></button>
@@ -529,13 +559,18 @@ function openTrip(key, pickOther = false) {
     <p class="note" role="status"></p>
     <button class="link" data-close>Close</button>`);
 
+  const saveCandidate = c => c.kind === "planned" ? save(sheet, r, "planned", "", "", "", c.journey)
+                                                  : save(sheet, r, "other", c.train, c.dep, c.kind, c.journey);
   sheet.addEventListener("click", e => {
+    const cand = e.target.closest("[data-cand]");
+    if (cand) return saveCandidate(r.cands[Number(cand.dataset.cand)]);
     const b = e.target.closest("[data-pick]");
     if (!b) return;
     if (b.dataset.pick === "other") return showOtherTrains(sheet, r);
     save(sheet, r, b.dataset.pick, "");
   });
   if (pickOther) showOtherTrains(sheet, r);
+  if (pickCandidate !== null && r.cands[pickCandidate]) saveCandidate(r.cands[pickCandidate]);
 }
 
 async function fetchConnections(r) {
@@ -664,7 +699,7 @@ async function appendCorrection(row) {
 }
 
 let saving = false;
-async function save(sheet, r, status, train, departure = "", reason = "") {
+async function save(sheet, r, status, train, departure = "", reason = "", journey = undefined) {
   if (saving) return;
   saving = true;
   sheet.querySelectorAll("button.opt, .btn").forEach(b => b.disabled = true);
@@ -672,8 +707,13 @@ async function save(sheet, r, status, train, departure = "", reason = "") {
   const row = { date: r.date, direction: r.direction, status, train: status === "other" ? train : "",
                 reason: status === "other" ? reason || "choice" : "", created_at: new Date().toISOString().replace(/\.\d+Z$/, "Z") };
   try {
+    // what only this browser knows (departure / journey delay of a picked train) survives re-reading the file
+    const extras = new Map(CORR.filter(c => c._departure || c._journey !== undefined)
+                               .map(c => [`${c.date}|${c.direction}|${c.created_at}`, { _departure: c._departure, _journey: c._journey }]));
     CORR = await appendCorrection(row);
+    CORR.forEach(c => Object.assign(c, extras.get(`${c.date}|${c.direction}|${c.created_at}`) || {}));
     if (status === "other") CORR[CORR.length - 1]._departure = departure;
+    if (journey !== undefined) CORR[CORR.length - 1]._journey = String(journey);
     render();
     note(sheet, "Saved", "ok");
     setTimeout(closeSheet, 700);
@@ -727,7 +767,8 @@ function openSettings() {
 document.getElementById("gear").addEventListener("click", openSettings);
 document.getElementById("app").addEventListener("click", e => {
   const tr = e.target.closest("tr.editable");
-  if (tr && canEdit()) openTrip(tr.dataset.key, Boolean(e.target.closest("[data-ask-train]")));
+  const chip = e.target.closest("[data-cand]");
+  if (tr && canEdit()) openTrip(tr.dataset.key, Boolean(e.target.closest("[data-ask-train]")), chip ? Number(chip.dataset.cand) : null);
 });
 
 /* ---------- load ---------- */

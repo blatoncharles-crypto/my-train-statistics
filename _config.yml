@@ -1,0 +1,6 @@
+# GitHub Pages: don't publish the raw check-in events (exact times at the stations).
+# The dashboard only needs config/, data/trips.csv and data/corrections.csv.
+exclude:
+  - data/checkins
+  - track_commute.py
+  - README.md
