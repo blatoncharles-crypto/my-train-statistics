@@ -1,0 +1,7 @@
+date,direction,train,from_station,to_station,scheduled_departure,scheduled_arrival,delay_min,status,source,cancelled
+2026-11-17,out,IC 506,BE.NMBS.008812005,BE.NMBS.008833001,08:08,08:23,3,planned,auto,no
+2026-11-17,back,IC 3638,BE.NMBS.008833001,BE.NMBS.008812005,17:21,17:38,17,planned,auto,no
+2026-11-18,out,IC 506,BE.NMBS.008812005,BE.NMBS.008833001,08:08,08:23,-1,planned,auto,no
+2026-11-18,back,IC 3638,BE.NMBS.008833001,BE.NMBS.008812005,17:21,17:38,1,planned,auto,no
+2026-11-19,out,IC 506,BE.NMBS.008812005,BE.NMBS.008833001,08:08,08:23,6,planned,auto,no
+2026-11-19,back,IC 3638,BE.NMBS.008833001,BE.NMBS.008812005,17:21,17:38,2,planned,auto,no
