@@ -11,18 +11,21 @@ Logs the delays of my daily train commute using the [iRail API](https://docs.ira
   |---|---|
   | `date` | travel day (YYYY-MM-DD) |
   | `direction` | `out` or `back` |
-  | `train` | e.g. `IC 506` |
+  | `train` | the train actually taken, e.g. `IC 506` |
   | `from_station`, `to_station` | iRail station IDs (names are in the config) |
-  | `scheduled_departure`, `scheduled_arrival` | HH:MM, Belgian time |
-  | `delay_min` | delay on arrival at `to_station` (negative = early; empty if cancelled) |
-  | `status` | `planned` (usual train), `skipped` (didn't travel) or `other` (took another train) |
+  | `scheduled_departure`, `scheduled_arrival` | timetable of the train taken, HH:MM Belgian time |
+  | `planned_arrival` | scheduled arrival at `to_station` of the usual train that day |
+  | `actual_arrival` | actual arrival at `to_station` of the train taken |
+  | `train_delay_min` | delay of the train taken, at `to_station` |
+  | `journey_delay_min` | `actual_arrival` − `planned_arrival` in whole minutes: the NMBS journey delay, used for compensation (negative = earlier train; counted as 0) |
+  | `status` | `planned` (usual train), `skipped` (didn't travel; both delays empty) or `other` (took another train) |
   | `source` | `auto` (filled by the script) or `manual` (set by a dashboard correction or by hand; only a newer correction changes it) |
-  | `cancelled` | `yes` / `no` |
+  | `cancelled` | `true` / `false`: was the usual train cancelled (departure at `from_station`, arrival at `to_station`, or the whole train)? If so and there's no correction, `journey_delay_min` stays empty until you say which train you took |
 
 - `data/corrections.csv` – corrections made on the dashboard: `date, direction, status, train, created_at`. Append-only; the latest row per date + direction wins (choosing "As planned" again undoes a correction). The dashboard only ever writes to this file, never to `trips.csv`.
-- `track_commute.py` – creates the day's expected trips from the config and fills in the delay via the iRail vehicle endpoint. Python standard library only. On every run it also applies the latest correction per trip (last 14 days up to tomorrow) to `trips.csv`: `skipped` → status skipped, `other` → that train with its own delay, `planned` → back to the usual train. Re-running never changes the result or adds duplicates. A delay already measured is kept when a trip is marked skipped, so undoing it brings the delay back.
+- `track_commute.py` – creates the day's expected trips from the config and fills in the delay via the iRail vehicle endpoint. Python standard library only. On every run it also applies the latest correction per trip (last 14 days up to tomorrow) to `trips.csv`: `skipped` → status skipped with both delays empty, `other` → that train, with its own delay and the journey delay against the usual train, `planned` → back to the usual train. Re-running never changes the result or adds duplicates. The arrival times are kept when a trip is marked skipped, so undoing it brings the delays back.
 - `.github/workflows/track-commute.yml` – runs the script every weekday evening (19:30 UTC) and commits `data/trips.csv`. Can also be started by hand from the Actions tab.
-- `index.html` + `manifest.json` – the dashboard (plain HTML + JavaScript), installable on a phone's home screen. Only trips with status `planned` or `other` count.
+- `index.html` + `manifest.json` – the dashboard (plain HTML + JavaScript), installable on a phone's home screen. Only trips with status `planned` or `other` count. The compensation counter, the monthly/yearly totals and the worst trip use `journey_delay_min`; "average delay per train" uses `train_delay_min` of the usual trains on days they were taken.
 
 iRail only keeps real-time data for the current day, so mark an "other train" on the day itself to get its delay; "didn't travel" can be marked any time.
 
