@@ -112,6 +112,7 @@
 
   .muted { color: var(--text-muted); }
   .pending { display: block; color: var(--text-muted); font-size: 12px; font-style: italic; }
+  .pending.ask { color: var(--critical); font-style: normal; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
   td:first-child { white-space: nowrap; }
   td.r { white-space: nowrap; }
   tr.group td { padding: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -180,11 +181,11 @@
 </main>
 
 <script>
-// NMBS repeated-delay compensation: this many delays of at least this many minutes in the window below.
+// NMBS repeated-delay compensation: this many trips with a journey delay of at least this many
+// minutes in the window below. The journey delay is measured against the planned (usual) train.
 const COMP_NEEDED = 10;
 const COMP_MIN_DELAY = 30;
 const COMP_WINDOW_MONTHS = 6;
-const COMP_COUNT_CANCELLED = true; // a cancelled train counts as a long delay
 
 // Only these trip statuses count anywhere on the page ("skipped" = I didn't travel).
 const COUNTED_STATUS = ["planned", "other"];
@@ -254,25 +255,35 @@ function blankTrip(date, direction) {
   const [from, to] = direction === "out" ? [home.id, work.id] : [work.id, home.id];
   const usual = CFG.trains[direction];
   return { date, direction, train: usual.train, from_station: from, to_station: to, scheduled_departure: usual.departure,
-           scheduled_arrival: "", delay_min: "", status: "planned", source: "auto", cancelled: "no" };
+           scheduled_arrival: "", planned_arrival: "", actual_arrival: "", train_delay_min: "", journey_delay_min: "",
+           status: "planned", source: "auto", cancelled: "false" };
 }
 
-const hasResult = r => r.delay_min !== "" || r.cancelled === "yes";
+// a trip the evening run is done with: it has a journey delay, or the usual train was cancelled
+const hasResult = r => r.journey_delay_min !== "" || (r.status === "planned" && r.cancelled === "true");
+const NO_RESULT = { actual_arrival: "", train_delay_min: "", journey_delay_min: "" };
 
 // Same rules as track_commute.py, so a correction shows up immediately, before the evening run.
 function applyCorrection(row, c) {
   if (!c) return row;
   const usual = CFG.trains[row.direction].train;
-  if (c.status === "skipped") return { ...row, status: "skipped" };
+  if (c.status === "skipped") return { ...row, status: "skipped", train_delay_min: "", journey_delay_min: "" };
   if (c.status === "other") {
     if (row.status === "other" && row.source === "manual" && row.train === c.train) return row;
-    return { ...row, status: "other", source: "manual", train: c.train, scheduled_departure: c._departure || "",
-             scheduled_arrival: "", delay_min: "", cancelled: "no" };
+    return { ...row, ...NO_RESULT, status: "other", source: "manual", train: c.train,
+             scheduled_departure: c._departure || "", scheduled_arrival: "" };   // keeps planned_arrival + cancelled
   }
   // planned = undo
   if (row.source === "auto" && row.status === "planned") return row;
-  if (row.train === usual && hasResult(row)) return { ...row, status: "planned", source: "auto" };
-  return { ...blankTrip(row.date, row.direction), scheduled_arrival: row.scheduled_arrival };
+  if (row.train === usual) {
+    const back = { ...row, status: "planned", source: "auto" };
+    if (row.journey_delay_min !== "" || row.cancelled === "true") return back;
+    if (row.actual_arrival && row.planned_arrival) {              // undoing "skipped": arrival times were kept
+      const d = String(toMin(row.actual_arrival) - toMin(row.planned_arrival));
+      return { ...back, train_delay_min: d, journey_delay_min: d };
+    }
+  }
+  return { ...blankTrip(row.date, row.direction), planned_arrival: row.planned_arrival, cancelled: row.cancelled || "false" };
 }
 
 function latestCorrections() {
@@ -308,39 +319,50 @@ function buildTrips() {
       }
     }
   }
-  const decorate = r => ({ ...r, delay: Number(r.delay_min), cancelled: r.cancelled === "yes", day: new Date(r.date + "T00:00:00"),
+  const decorate = r => ({ ...r, journey: Number(r.journey_delay_min), trainDelay: Number(r.train_delay_min),
+                           cancelled: r.cancelled === "true", day: new Date(r.date + "T00:00:00"),
                            from: r.from_station, to: r.to_station, scheduled_time: r.scheduled_departure });
   return { all: out.map(decorate), upcoming: upcoming.map(decorate) };
 }
 
 /* ---------- rendering ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const lateMin = r => r.cancelled ? 0 : Math.max(0, r.delay);   // being early doesn't cancel out delays
+const lateMin = r => Math.max(0, r.journey);   // arriving early (an earlier train) counts as 0
 const fmtDate = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const fmtAvg = n => (Math.round(n * 10) / 10).toLocaleString("en-GB", { minimumFractionDigits: 1 });
-const counts = r => COUNTED_STATUS.includes(r.status) && (r.cancelled || r.delay_min !== "");
+const counts = r => COUNTED_STATUS.includes(r.status) && r.journey_delay_min !== "";
+const isUsual = r => CFG.trains[r.direction] && r.train === CFG.trains[r.direction].train;
+// usual train cancelled and nobody has said yet which train was taken
+const needsTrain = r => r.status === "planned" && r.cancelled && r.journey_delay_min === "";
+const signed = n => (n > 0 ? `+${n}` : `${n}`);
 
-function status(r) {
-  if (r.cancelled) return ["critical", "Cancelled"];
-  if (r.delay >= COMP_MIN_DELAY) return ["critical", `+${r.delay} min`];
-  if (r.delay >= 5) return ["warning", `+${r.delay} min`];
-  if (r.delay > 0) return ["good", `+${r.delay} min`];
-  return ["good", r.delay < 0 ? `${r.delay} min` : "On time"];
+function status(d) {
+  if (d >= COMP_MIN_DELAY) return ["critical", `+${d} min`];
+  if (d >= 5) return ["warning", `+${d} min`];
+  if (d > 0) return ["good", `+${d} min`];
+  return ["good", d < 0 ? `${d} min` : "On time"];
 }
 
 function delayCell(r) {
   if (r.status === "skipped") return `<span class="muted">Didn't travel</span>`;
-  if (r.cancelled || r.delay_min !== "") {
-    const [cls, text] = status(r);
+  if (r.journey_delay_min !== "") {
+    const [cls, text] = status(r.journey);
     return `<span class="badge"><span class="dot ${cls}"></span>${text}</span>`;
   }
+  if (needsTrain(r)) return `<span class="badge"><span class="dot critical"></span>Cancelled</span>`;
   if (r.status === "other") return `<span class="muted">Other train</span>`;
   return `<span class="muted">${r.upcoming ? "Upcoming" : "No data"}</span>`;
 }
 
-// extra line under the train for a trip that is still waiting for its delay
+// extra line under the train: which train was taken, a cancellation, or a delay still to come
 function pendingNote(r) {
-  if (r.status === "skipped" || r.cancelled || r.delay_min !== "") return "";
+  if (r.status === "skipped") return "";
+  if (needsTrain(r)) return canEdit() && isEditable(r.date)
+    ? `<span class="pending ask" data-ask-train>Cancelled – which train did you take?</span>`
+    : `<span class="pending">Usual train cancelled</span>`;
+  if (r.status === "other" && r.journey_delay_min !== "")
+    return `<span class="pending">took ${esc(r.train)}${r.train_delay_min !== "" ? ` · train ${signed(r.trainDelay)}` : ""}</span>`;
+  if (r.journey_delay_min !== "") return "";
   if (r.status !== "other" && r.upcoming) return "";
   const text = r.date >= isoToday() ? "delay follows after the evening run" : "no delay data (iRail only keeps today's)";
   return `<span class="pending">${r.status === "other" ? esc(r.train) + " · " : ""}${text}</span>`;
@@ -372,28 +394,27 @@ function render() {
 
   // compensation window
   const since = new Date(now.getFullYear(), now.getMonth() - COMP_WINDOW_MONTHS, now.getDate());
-  const qualifying = rows.filter(r => r.day >= since && (r.delay >= COMP_MIN_DELAY || (COMP_COUNT_CANCELLED && r.cancelled)));
-  const compCount = qualifying.length;
-  const nCancelled = qualifying.filter(r => r.cancelled).length;
+  const compCount = rows.filter(r => r.day >= since && r.journey >= COMP_MIN_DELAY).length;
   const reached = compCount >= COMP_NEEDED;
 
-  // average per train (cancelled trips excluded from the average)
+  // average per train: the usual trains on days I took them (train delay); cancellations counted separately
   const byTrain = new Map();
-  for (const r of rows) {
+  for (const r of VIEW.all.filter(r => r.status === "planned" && isUsual(r))) {
     const t = byTrain.get(r.train) || { train: r.train, from: r.from, to: r.to, time: r.scheduled_time, ran: [], cancelled: 0 };
-    r.cancelled ? t.cancelled++ : t.ran.push(r);
+    if (r.cancelled) t.cancelled++;
+    else if (r.train_delay_min !== "") t.ran.push(r);
     byTrain.set(r.train, t);
   }
-  const trains = [...byTrain.values()].map(t => ({
+  const trains = [...byTrain.values()].filter(t => t.ran.length || t.cancelled).map(t => ({
     ...t,
-    avg: t.ran.length ? t.ran.reduce((s, r) => s + Math.max(0, r.delay), 0) / t.ran.length : 0,
-    worst: t.ran.reduce((w, r) => (!w || r.delay > w.delay ? r : w), null),
+    avg: t.ran.length ? t.ran.reduce((s, r) => s + Math.max(0, r.trainDelay), 0) / t.ran.length : 0,
+    worst: t.ran.reduce((w, r) => (!w || r.journey > w.journey ? r : w), null),   // worst trip, by journey delay
   })).sort((a, b) => b.avg - a.avg);
   const maxAvg = Math.max(1, ...trains.map(t => t.avg));
   const worst = trains[0];
 
   // the list: counted trips, plus (for the owner) skipped ones and corrected trips still waiting for a delay
-  const listed = VIEW.all.filter(r => counts(r) || r.status === "other" || (canEdit() && r.corrected));
+  const listed = VIEW.all.filter(r => counts(r) || r.status === "other" || needsTrain(r) || (canEdit() && r.corrected));
   const byNewest = (a, b) => b.date.localeCompare(a.date) || (b.scheduled_time || "").localeCompare(a.scheduled_time || "");
   const last = listed.sort(byNewest).slice(0, 10);
   const upcoming = [...VIEW.upcoming].sort((a, b) => a.date.localeCompare(b.date) || (a.scheduled_time || "").localeCompare(b.scheduled_time || ""));
@@ -410,7 +431,7 @@ function render() {
       <div class="sub">${reached
         ? "Threshold reached — you can apply for compensation with NMBS."
         : `${COMP_NEEDED - compCount} more delay${COMP_NEEDED - compCount === 1 ? "" : "s"} of ${COMP_MIN_DELAY}+ min needed`}
-        ${COMP_COUNT_CANCELLED && nCancelled ? ` · includes ${nCancelled} cancelled` : ""}</div>
+        </div>
     </section>
 
     <section class="card">
@@ -428,7 +449,7 @@ function render() {
       <p class="label">Worst train</p>
       <div class="value" style="font-size:26px">${esc(worst.train)} <small>${esc(worst.time)}</small></div>
       <div class="sub">${esc(name(worst.from))} → ${esc(name(worst.to))} · ${fmtAvg(worst.avg)} min late on average${
-        worst.worst && worst.worst.delay > 0 ? ` · worst +${worst.worst.delay} min on ${fmtDate(worst.worst.day)}` : ""}${
+        worst.worst && worst.worst.journey > 0 ? ` · worst +${worst.worst.journey} min on ${fmtDate(worst.worst.day)}` : ""}${
         worst.cancelled ? ` · ${worst.cancelled}× cancelled` : ""}</div>
     </section>
 
@@ -482,7 +503,7 @@ function note(sheet, text, kind = "") {
   n.textContent = text;
 }
 
-function openTrip(key) {
+function openTrip(key, pickOther = false) {
   const r = [...VIEW.upcoming, ...VIEW.all].find(t => `${t.date}|${t.direction}` === key);
   if (!r) return;
   const usual = CFG.trains[r.direction];
@@ -505,6 +526,7 @@ function openTrip(key) {
     if (b.dataset.pick === "other") return showOtherTrains(sheet, r);
     save(sheet, r, b.dataset.pick, "");
   });
+  if (pickOther) showOtherTrains(sheet, r);
 }
 
 async function fetchConnections(r) {
@@ -675,7 +697,7 @@ function openSettings() {
 document.getElementById("gear").addEventListener("click", openSettings);
 document.getElementById("app").addEventListener("click", e => {
   const tr = e.target.closest("tr.editable");
-  if (tr && canEdit()) openTrip(tr.dataset.key);
+  if (tr && canEdit()) openTrip(tr.dataset.key, Boolean(e.target.closest("[data-ask-train]")));
 });
 
 /* ---------- load ---------- */
