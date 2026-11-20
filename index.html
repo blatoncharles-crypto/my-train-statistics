@@ -110,6 +110,48 @@
   .dot.warning { background: var(--warning); }
   .dot.critical { background: var(--critical); }
 
+  .muted { color: var(--text-muted); }
+  .pending { display: block; color: var(--text-muted); font-size: 12px; font-style: italic; }
+  td:first-child { white-space: nowrap; }
+  td.r { white-space: nowrap; }
+  tr.group td { padding: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+  tr.editable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  tr.editable:active td { background: var(--track); }
+  .hint { font-size: 12px; color: var(--text-muted); margin: -6px 0 8px; }
+
+  /* header gear + bottom sheets */
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .icon-btn { flex: none; width: 40px; height: 40px; margin: -6px -8px 0 0; border: 0; border-radius: 50%; background: transparent;
+              color: var(--text-secondary); display: grid; place-items: center; cursor: pointer; }
+  .icon-btn:active { background: var(--track); }
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 10; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 11; max-height: 85vh; overflow-y: auto;
+           background: var(--surface); color: var(--text-primary); border-radius: 18px 18px 0 0;
+           padding: 8px max(16px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+           max-width: 760px; margin: 0 auto; box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15); }
+  .sheet .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--border); margin: 0 auto 12px; }
+  .sheet h3 { font-size: 17px; margin: 0; }
+  .sheet .sub { margin: 2px 0 14px; }
+  .opts { display: grid; gap: 8px; }
+  .opt { width: 100%; text-align: left; font: inherit; color: inherit; background: transparent; cursor: pointer;
+         border: 1px solid var(--border); border-radius: 12px; padding: 13px 14px; display: flex; justify-content: space-between; gap: 8px; }
+  .opt small { color: var(--text-muted); }
+  .opt[aria-pressed="true"] { border-color: var(--series-1); box-shadow: inset 0 0 0 1px var(--series-1); }
+  .opt:disabled { opacity: 0.5; cursor: default; }
+  .trains { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); margin-top: 4px; }
+  .trains .opt { padding: 11px 12px; font-variant-numeric: tabular-nums; }
+  .field { display: flex; gap: 8px; margin-top: 8px; }
+  .field input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 11px 12px; border-radius: 10px;
+                 border: 1px solid var(--border); background: var(--page); color: var(--text-primary); }
+  .btn { font: inherit; font-weight: 600; padding: 11px 16px; border-radius: 10px; border: 0; cursor: pointer;
+         background: var(--series-1); color: #fff; }
+  .btn.secondary { background: transparent; color: var(--critical); border: 1px solid var(--border); font-weight: 500; }
+  .link { font: inherit; font-size: 14px; color: var(--series-1); background: none; border: 0; padding: 10px 0 0; cursor: pointer; }
+  .note { min-height: 1.4em; margin: 12px 0 0; font-size: 14px; }
+  .note.ok { color: var(--good); }
+  .note.err { color: var(--critical); }
+  .sheet p.text { font-size: 14px; color: var(--text-secondary); margin: 0 0 10px; }
+
   .msg { color: var(--text-secondary); }
   footer { margin-top: 16px; font-size: 12px; color: var(--text-muted); }
   @media (max-width: 420px) {
@@ -121,9 +163,18 @@
 <body>
 <main>
   <header>
-    <h1>Commute delays</h1>
-    <p id="route">&nbsp;</p>
+    <div>
+      <h1>Commute delays</h1>
+      <p id="route">&nbsp;</p>
+    </div>
+    <button class="icon-btn" id="gear" aria-label="Settings" title="Settings">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
   </header>
+  <div id="sheet-root"></div>
   <div id="app"><p class="msg">Loading…</p></div>
   <footer id="foot"></footer>
 </main>
@@ -137,27 +188,52 @@ const COMP_COUNT_CANCELLED = true; // a cancelled train counts as a long delay
 
 // Only these trip statuses count anywhere on the page ("skipped" = I didn't travel).
 const COUNTED_STATUS = ["planned", "other"];
+const CORRECTION_WINDOW_DAYS = 14;      // trips from the last 14 days, today and tomorrow can be corrected
+const TZ = "Europe/Brussels";
+const TOKEN_KEY = "commute.githubToken";
+const CORRECTIONS_PATH = "data/corrections.csv";
+const BRANCH = "main";
 
+let CFG = null;
+let TRIPS = [];                         // rows of data/trips.csv
+let CORR = [];                          // rows of data/corrections.csv, in file order
 let STATION = {};                       // station id -> display name, filled from config/route.json
 const name = s => STATION[s] || s;
 
+// GitHub Pages URL https://<owner>.github.io/<repo>/ tells us which repository to write to
+const REPO = (() => {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
+  const repo = location.pathname.split("/")[1];
+  return m && repo ? { owner: m[1], repo } : null;
+})();
+
+const storage = {
+  get() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } },
+  set(v) { try { localStorage.setItem(TOKEN_KEY, v); return true; } catch { return false; } },
+  clear() { try { localStorage.removeItem(TOKEN_KEY); } catch {} },
+};
+let TOKEN = storage.get();
+const canEdit = () => Boolean(TOKEN && REPO);
+
+/* ---------- dates (always Belgian time) ---------- */
+const isoToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
+const addDays = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const hhmm = unix => new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(unix * 1000));
+const toMin = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const weekday = iso => WEEK[(new Date(iso + "T12:00:00Z").getUTCDay() + 6) % 7];
+const isEditable = iso => iso >= addDays(isoToday(), -CORRECTION_WINDOW_DAYS) && iso <= addDays(isoToday(), 1);
+
+/* ---------- CSV ---------- */
 function parseCSV(text) {
   const [head, ...lines] = text.trim().split(/\r?\n/);
   const keys = head.split(",");
   return lines.filter(Boolean).map(line => {
     const vals = line.split(",");
-    const r = Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
-    r.from = r.from_station;
-    r.to = r.to_station;
-    r.scheduled_time = r.scheduled_departure;
-    r.delay = Number(r.delay_min);
-    r.cancelled = r.cancelled === "yes";
-    r.day = new Date(r.date + "T00:00:00");
-    return r;
-  }).filter(r => COUNTED_STATUS.includes(r.status) && (r.cancelled || r.delay_min !== ""));
+    return Object.fromEntries(keys.map((k, i) => [k, vals[i] ?? ""]));
+  });
 }
 
-const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function describeDays(days) {
   const key = WEEK.filter(d => days.includes(d)).join(",");
   if (key === "Mon,Tue,Wed,Thu,Fri") return "weekdays";
@@ -166,15 +242,83 @@ function describeDays(days) {
 }
 
 function applyConfig(cfg) {
+  CFG = cfg;
   const { home, work } = cfg.stations;
   STATION = { [home.id]: home.name, [work.id]: work.name };
   document.getElementById("route").textContent = `${home.name} ⇄ ${work.name} · ${describeDays(cfg.travel_days)}`;
 }
 
+/* ---------- trips with corrections applied ---------- */
+function blankTrip(date, direction) {
+  const { home, work } = CFG.stations;
+  const [from, to] = direction === "out" ? [home.id, work.id] : [work.id, home.id];
+  const usual = CFG.trains[direction];
+  return { date, direction, train: usual.train, from_station: from, to_station: to, scheduled_departure: usual.departure,
+           scheduled_arrival: "", delay_min: "", status: "planned", source: "auto", cancelled: "no" };
+}
+
+const hasResult = r => r.delay_min !== "" || r.cancelled === "yes";
+
+// Same rules as track_commute.py, so a correction shows up immediately, before the evening run.
+function applyCorrection(row, c) {
+  if (!c) return row;
+  const usual = CFG.trains[row.direction].train;
+  if (c.status === "skipped") return { ...row, status: "skipped" };
+  if (c.status === "other") {
+    if (row.status === "other" && row.source === "manual" && row.train === c.train) return row;
+    return { ...row, status: "other", source: "manual", train: c.train, scheduled_departure: c._departure || "",
+             scheduled_arrival: "", delay_min: "", cancelled: "no" };
+  }
+  // planned = undo
+  if (row.source === "auto" && row.status === "planned") return row;
+  if (row.train === usual && hasResult(row)) return { ...row, status: "planned", source: "auto" };
+  return { ...blankTrip(row.date, row.direction), scheduled_arrival: row.scheduled_arrival };
+}
+
+function latestCorrections() {
+  const m = new Map();
+  for (const c of CORR) m.set(`${c.date}|${c.direction}`, c);
+  return m;
+}
+
+function buildTrips() {
+  const latest = latestCorrections();
+  const seen = new Set();
+  const corrected = (r, c) => c ? { ...applyCorrection(r, c), corrected: true } : r;
+  const out = TRIPS.map(r => { seen.add(`${r.date}|${r.direction}`); return corrected(r, latest.get(`${r.date}|${r.direction}`)); });
+  // corrected trips the evening run hasn't logged yet (e.g. marked in advance)
+  for (const [key, c] of latest) {
+    if (!seen.has(key) && CFG.trains[c.direction] && c.status !== "planned") {
+      out.push(corrected(blankTrip(c.date, c.direction), c));
+      seen.add(key);
+    }
+  }
+  // today's and tomorrow's trips, so they can be marked in advance
+  const upcoming = [];
+  if (canEdit()) {
+    for (const date of [isoToday(), addDays(isoToday(), 1)]) {
+      if (!CFG.travel_days.includes(weekday(date))) continue;
+      for (const dir of Object.keys(CFG.trains)) {
+        const key = `${date}|${dir}`;
+        const existing = out.find(r => `${r.date}|${r.direction}` === key);
+        if (existing && hasResult(existing)) continue;
+        const r = existing || corrected(blankTrip(date, dir), latest.get(key));
+        if (existing) out.splice(out.indexOf(existing), 1);
+        upcoming.push({ ...r, upcoming: true });
+      }
+    }
+  }
+  const decorate = r => ({ ...r, delay: Number(r.delay_min), cancelled: r.cancelled === "yes", day: new Date(r.date + "T00:00:00"),
+                           from: r.from_station, to: r.to_station, scheduled_time: r.scheduled_departure });
+  return { all: out.map(decorate), upcoming: upcoming.map(decorate) };
+}
+
+/* ---------- rendering ---------- */
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const lateMin = r => r.cancelled ? 0 : Math.max(0, r.delay);   // being early doesn't cancel out delays
 const fmtDate = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const fmtAvg = n => (Math.round(n * 10) / 10).toLocaleString("en-GB", { minimumFractionDigits: 1 });
+const counts = r => COUNTED_STATUS.includes(r.status) && (r.cancelled || r.delay_min !== "");
 
 function status(r) {
   if (r.cancelled) return ["critical", "Cancelled"];
@@ -184,9 +328,42 @@ function status(r) {
   return ["good", r.delay < 0 ? `${r.delay} min` : "On time"];
 }
 
-function render(rows) {
+function delayCell(r) {
+  if (r.status === "skipped") return `<span class="muted">Didn't travel</span>`;
+  if (r.cancelled || r.delay_min !== "") {
+    const [cls, text] = status(r);
+    return `<span class="badge"><span class="dot ${cls}"></span>${text}</span>`;
+  }
+  if (r.status === "other") return `<span class="muted">Other train</span>`;
+  return `<span class="muted">${r.upcoming ? "Upcoming" : "No data"}</span>`;
+}
+
+// extra line under the train for a trip that is still waiting for its delay
+function pendingNote(r) {
+  if (r.status === "skipped" || r.cancelled || r.delay_min !== "") return "";
+  if (r.status !== "other" && r.upcoming) return "";
+  const text = r.date >= isoToday() ? "delay follows after the evening run" : "no delay data (iRail only keeps today's)";
+  return `<span class="pending">${r.status === "other" ? esc(r.train) + " · " : ""}${text}</span>`;
+}
+
+function tripRow(r) {
+  const editable = canEdit() && isEditable(r.date) && CFG.trains[r.direction];
+  const time = r.scheduled_time || r.train;
+  return `<tr${editable ? ` class="editable" data-key="${esc(r.date)}|${esc(r.direction)}"` : ""}>
+    <td>${fmtDate(r.day)}</td>
+    <td>${esc(time)} <span class="hide-sm">${r.scheduled_time ? esc(r.train) : ""}</span>
+      <span class="route">${esc(name(r.from))} → ${esc(name(r.to))}</span>${pendingNote(r)}</td>
+    <td class="r">${delayCell(r)}</td>
+  </tr>`;
+}
+
+let VIEW = { all: [], upcoming: [] };
+
+function render() {
+  VIEW = buildTrips();
+  const rows = VIEW.all.filter(counts);
   const app = document.getElementById("app");
-  if (!rows.length) { app.innerHTML = '<p class="msg">No trips logged yet.</p>'; return; }
+  if (!rows.length && !VIEW.upcoming.length) { app.innerHTML = '<p class="msg">No trips logged yet.</p>'; return; }
 
   const now = new Date();
   const monthRows = rows.filter(r => r.day.getFullYear() === now.getFullYear() && r.day.getMonth() === now.getMonth());
@@ -215,7 +392,11 @@ function render(rows) {
   const maxAvg = Math.max(1, ...trains.map(t => t.avg));
   const worst = trains[0];
 
-  const last = [...rows].sort((a, b) => b.day - a.day || b.scheduled_time.localeCompare(a.scheduled_time)).slice(0, 10);
+  // the list: counted trips, plus (for the owner) skipped ones and corrected trips still waiting for a delay
+  const listed = VIEW.all.filter(r => counts(r) || r.status === "other" || (canEdit() && r.corrected));
+  const byNewest = (a, b) => b.date.localeCompare(a.date) || (b.scheduled_time || "").localeCompare(a.scheduled_time || "");
+  const last = listed.sort(byNewest).slice(0, 10);
+  const upcoming = [...VIEW.upcoming].sort((a, b) => a.date.localeCompare(b.date) || (a.scheduled_time || "").localeCompare(b.scheduled_time || ""));
   const monthName = now.toLocaleDateString("en-GB", { month: "long" });
 
   app.innerHTML = `
@@ -242,7 +423,7 @@ function render(rows) {
       <div class="value">${sum(yearRows)}<small>min</small></div>
       <div class="sub">${yearRows.length} trip${yearRows.length === 1 ? "" : "s"}</div>
     </section>
-
+    ${worst ? `
     <section class="card span-2">
       <p class="label">Worst train</p>
       <div class="value" style="font-size:26px">${esc(worst.train)} <small>${esc(worst.time)}</small></div>
@@ -263,36 +444,251 @@ function render(rows) {
             <div class="bar"><i style="width:${(t.avg / maxAvg) * 100}%"></i></div>
           </div>`).join("")}
       </div>
-    </section>
+    </section>` : ""}
 
     <section class="card span-2">
       <h2>Last ${last.length} trips</h2>
+      ${canEdit() ? `<p class="hint">Tap a trip to correct it.</p>` : ""}
       <table>
         <thead><tr><th>Date</th><th>Train</th><th class="r">Delay</th></tr></thead>
         <tbody>
-          ${last.map(r => {
-            const [cls, text] = status(r);
-            return `<tr>
-              <td>${fmtDate(r.day)}</td>
-              <td>${esc(r.scheduled_time)} <span class="hide-sm">${esc(r.train)}</span>
-                <span class="route">${esc(name(r.from))} → ${esc(name(r.to))}</span></td>
-              <td class="r"><span class="badge"><span class="dot ${cls}"></span>${text}</span></td>
-            </tr>`;
-          }).join("")}
+          ${upcoming.length ? `<tr class="group"><td colspan="3">Upcoming</td></tr>${upcoming.map(tripRow).join("")}
+            <tr class="group"><td colspan="3">Logged</td></tr>` : ""}
+          ${last.map(tripRow).join("")}
         </tbody>
       </table>
     </section>
   </div>`;
 
+  const lastLogged = rows.reduce((d, r) => (!d || r.day > d ? r.day : d), null);
   document.getElementById("foot").textContent =
-    `${rows.length} trips logged · last update ${fmtDate(last[0].day)} · delays measured on arrival`;
+    `${rows.length} trips logged${lastLogged ? ` · last update ${fmtDate(lastLogged)}` : ""} · delays measured on arrival`;
 }
 
+/* ---------- bottom sheets ---------- */
+const sheetRoot = document.getElementById("sheet-root");
+function openSheet(html) {
+  sheetRoot.innerHTML = `<div class="backdrop" data-close></div>
+    <div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
+  return sheetRoot.querySelector(".sheet");
+}
+function closeSheet() { sheetRoot.innerHTML = ""; }
+sheetRoot.addEventListener("click", e => { if (e.target.matches("[data-close]")) closeSheet(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
+
+function note(sheet, text, kind = "") {
+  const n = sheet.querySelector(".note");
+  n.className = `note ${kind}`;
+  n.textContent = text;
+}
+
+function openTrip(key) {
+  const r = [...VIEW.upcoming, ...VIEW.all].find(t => `${t.date}|${t.direction}` === key);
+  if (!r) return;
+  const usual = CFG.trains[r.direction];
+  const state = r.status;
+  const sheet = openSheet(`
+    <h3>${fmtDate(r.day)} · ${esc(usual.departure)}</h3>
+    <p class="sub">${esc(name(r.from))} → ${esc(name(r.to))}</p>
+    <div class="opts">
+      <button class="opt" data-pick="planned" aria-pressed="${state === "planned"}">As planned <small>${esc(usual.train)} ${esc(usual.departure)}</small></button>
+      <button class="opt" data-pick="skipped" aria-pressed="${state === "skipped"}">Didn't travel <small>not counted</small></button>
+      <button class="opt" data-pick="other" aria-pressed="${state === "other"}">Other train <small>${state === "other" ? esc(r.train) : "pick one"}</small></button>
+    </div>
+    <div id="other"></div>
+    <p class="note" role="status"></p>
+    <button class="link" data-close>Close</button>`);
+
+  sheet.addEventListener("click", e => {
+    const b = e.target.closest("[data-pick]");
+    if (!b) return;
+    if (b.dataset.pick === "other") return showOtherTrains(sheet, r);
+    save(sheet, r, b.dataset.pick, "");
+  });
+}
+
+async function fetchConnections(r) {
+  const dep = toMin(CFG.trains[r.direction].departure);
+  const start = Math.max(0, dep - 60), end = Math.min(24 * 60 - 1, dep + 120);
+  const [y, m, d] = r.date.split("-");
+  const found = new Map();
+  let t = start;
+  for (let page = 0; page < 8 && t <= end; page++) {
+    const time = String(Math.floor(t / 60)).padStart(2, "0") + String(t % 60).padStart(2, "0");
+    const url = `https://api.irail.be/v1/connections?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}` +
+                `&date=${d}${m}${y.slice(2)}&time=${time}&timesel=departure&format=json&lang=en&results=6`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`iRail ${res.status}`);
+    const list = (await res.json()).connection || [];
+    if (!list.length) break;
+    let latest = t;
+    for (const c of list) {
+      const when = hhmm(Number(c.departure.time));
+      latest = Math.max(latest, toMin(when));
+      const direct = Number((c.vias && c.vias.number) || 0) === 0;
+      if (direct && toMin(when) >= start && toMin(when) <= end) found.set(c.departure.vehicleinfo.shortname, when);
+    }
+    if (latest < t) break;
+    t = latest + 1;
+  }
+  return [...found].map(([train, when]) => ({ train, when })).sort((a, b) => a.when.localeCompare(b.when));
+}
+
+function normaliseTrain(s) {
+  const m = s.trim().toUpperCase().match(/^([A-Z]{1,3}\d?)\s*(\d{1,5})$/);
+  return m ? `${m[1]} ${m[2]}` : null;
+}
+
+async function showOtherTrains(sheet, r) {
+  const box = sheet.querySelector("#other");
+  const typed = (msg) => {
+    box.innerHTML = `<p class="text" style="margin-top:14px">${esc(msg)}</p>
+      <div class="field"><input id="train-no" placeholder="e.g. IC 1234" autocapitalize="characters" autocomplete="off">
+      <button class="btn" id="train-save">Save</button></div>`;
+    const input = box.querySelector("#train-no");
+    input.focus();
+    const go = () => {
+      const train = normaliseTrain(input.value);
+      if (!train) return note(sheet, "Type a train number like IC 1234.", "err");
+      save(sheet, r, "other", train);
+    };
+    box.querySelector("#train-save").addEventListener("click", go);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  };
+  box.innerHTML = `<p class="text" style="margin-top:14px">Loading trains…</p>`;
+  let list;
+  try { list = await fetchConnections(r); } catch (e) { list = null; }
+  if (!list || !list.length) return typed(list ? "No direct trains found around that time. Type the train number:" :
+                                                 "Couldn't load the trains from iRail. Type the train number:");
+  box.innerHTML = `<p class="text" style="margin-top:14px">Direct trains ${esc(name(r.from))} → ${esc(name(r.to))}:</p>
+    <div class="trains">${list.map(c => `<button class="opt" data-train="${esc(c.train)}" data-when="${esc(c.when)}">${esc(c.when)} · ${esc(c.train)}</button>`).join("")}</div>
+    <button class="link" id="type-it">Not in the list? Type the train number</button>`;
+  box.addEventListener("click", e => {
+    const b = e.target.closest("[data-train]");
+    if (b) save(sheet, r, "other", b.dataset.train, b.dataset.when);
+    if (e.target.id === "type-it") typed("Type the train number:");
+  });
+}
+
+/* ---------- GitHub storage ---------- */
+const b64encode = s => { const bytes = new TextEncoder().encode(s); let bin = ""; bytes.forEach(b => bin += String.fromCharCode(b)); return btoa(bin); };
+const b64decode = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, "")), c => c.charCodeAt(0)));
+
+async function gh(method, body, token = TOKEN) {
+  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}/contents/${CORRECTIONS_PATH}` + (method === "GET" ? `?ref=${BRANCH}` : "");
+  const res = await fetch(url, {
+    method, cache: "no-store",
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.ok) return res.json();
+  const err = new Error(
+    res.status === 401 ? "The token is invalid or has expired. Check it under Settings." :
+    res.status === 403 ? "The token has no write access to this repository (Contents: Read and write needed)." :
+    res.status === 404 ? "The token can't see this repository, or data/corrections.csv is missing." :
+    res.status === 409 ? "conflict" : `GitHub error ${res.status}.`);
+  err.status = res.status;
+  throw err;
+}
+
+async function readCorrectionsFromGitHub() {
+  const file = await gh("GET");
+  return { text: b64decode(file.content), sha: file.sha };
+}
+
+async function appendCorrection(row) {
+  const line = [row.date, row.direction, row.status, row.train, row.created_at].join(",");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { text, sha } = await readCorrectionsFromGitHub();
+    const next = (text.endsWith("\n") || !text ? text : text + "\n") + line + "\n";
+    try {
+      await gh("PUT", { message: `Correct trip ${row.date} ${row.direction}: ${row.status}${row.train ? " " + row.train : ""}`,
+                        content: b64encode(next), sha, branch: BRANCH });
+      return parseCSV(next);
+    } catch (e) {
+      if (e.status !== 409 || attempt === 1) throw e.status === 409 ? new Error("Someone else changed the file at the same time. Try again.") : e;
+    }
+  }
+}
+
+let saving = false;
+async function save(sheet, r, status, train, departure = "") {
+  if (saving) return;
+  saving = true;
+  sheet.querySelectorAll("button.opt, .btn").forEach(b => b.disabled = true);
+  note(sheet, "Saving…");
+  const row = { date: r.date, direction: r.direction, status, train: status === "other" ? train : "",
+                created_at: new Date().toISOString().replace(/\.\d+Z$/, "Z") };
+  try {
+    CORR = await appendCorrection(row);
+    if (status === "other") CORR[CORR.length - 1]._departure = departure;
+    render();
+    note(sheet, "Saved", "ok");
+    setTimeout(closeSheet, 700);
+  } catch (e) {
+    note(sheet, e.message || "Couldn't save. Check your connection.", "err");
+    sheet.querySelectorAll("button.opt, .btn").forEach(b => b.disabled = false);
+  } finally {
+    saving = false;
+  }
+}
+
+/* ---------- settings ---------- */
+function openSettings() {
+  const sheet = openSheet(`
+    <h3>Settings</h3>
+    <p class="sub">Corrections are saved to GitHub with your own token.</p>
+    ${!REPO ? `<p class="text">Corrections only work on the GitHub Pages site.</p>` : TOKEN ? `
+      <p class="text">A token is stored in this browser only. Corrections are enabled for <b>${esc(REPO.owner)}/${esc(REPO.repo)}</b>.</p>
+      <button class="btn secondary" id="remove">Remove token</button>` : `
+      <p class="text">Paste a fine-grained GitHub token with access to <b>${esc(REPO.owner)}/${esc(REPO.repo)}</b> only (Contents: Read and write). It is stored in this browser only.</p>
+      <div class="field"><input id="token" type="password" placeholder="github_pat_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn" id="store">Save</button></div>`}
+    <p class="note" role="status"></p>
+    <button class="link" data-close>Close</button>`);
+
+  sheet.querySelector("#remove")?.addEventListener("click", () => {
+    storage.clear();
+    TOKEN = "";
+    render();
+    openSettings();
+    note(sheetRoot.querySelector(".sheet"), "Token removed.", "ok");
+  });
+  sheet.querySelector("#store")?.addEventListener("click", async () => {
+    const value = sheet.querySelector("#token").value.trim();
+    if (!value) return note(sheet, "Paste a token first.", "err");
+    note(sheet, "Checking the token…");
+    try {
+      const file = await gh("GET", null, value);
+      if (!storage.set(value)) return note(sheet, "This browser doesn't allow storing the token (private mode?).", "err");
+      TOKEN = value;
+      CORR = parseCSV(b64decode(file.content));
+      render();
+      openSettings();
+      note(sheetRoot.querySelector(".sheet"), "Token saved. Tap a trip to correct it.", "ok");
+    } catch (e) {
+      note(sheet, e.message || "Couldn't reach GitHub. Check your connection.", "err");
+    }
+  });
+}
+
+document.getElementById("gear").addEventListener("click", openSettings);
+document.getElementById("app").addEventListener("click", e => {
+  const tr = e.target.closest("tr.editable");
+  if (tr && canEdit()) openTrip(tr.dataset.key);
+});
+
+/* ---------- load ---------- */
 const load = (path, as) => fetch(path, { cache: "no-store" })
   .then(r => { if (!r.ok) throw new Error(`${path}: ${r.status}`); return r[as](); });
 
-Promise.all([load("config/route.json", "json"), load("data/trips.csv", "text")])
-  .then(([cfg, text]) => { applyConfig(cfg); render(parseCSV(text)); })
+// With a token, read corrections straight from GitHub (the Pages copy lags a minute behind a save).
+const loadCorrections = () => (canEdit() ? readCorrectionsFromGitHub().then(f => f.text) : Promise.reject())
+  .catch(() => load(CORRECTIONS_PATH, "text"))
+  .catch(() => "date,direction,status,train,created_at\n");
+
+Promise.all([load("config/route.json", "json"), load("data/trips.csv", "text"), loadCorrections()])
+  .then(([cfg, trips, corrections]) => { applyConfig(cfg); TRIPS = parseCSV(trips); CORR = parseCSV(corrections); render(); })
   .catch(e => { document.getElementById("app").innerHTML = `<p class="msg">Could not load the data (${esc(e.message)}).</p>`; });
 </script>
 </body>
