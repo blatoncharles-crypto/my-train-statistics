@@ -1,7 +1,0 @@
-date,train,from,to,scheduled_time,delay_min,cancelled
-2026-11-17,IC 506,Brussels-North,Leuven,08:08,3,no
-2026-11-17,IC 3638,Leuven,Brussels-North,17:21,17,no
-2026-11-18,IC 506,Brussels-North,Leuven,08:08,-1,no
-2026-11-18,IC 3638,Leuven,Brussels-North,17:21,1,no
-2026-11-19,IC 506,Brussels-North,Leuven,08:08,6,no
-2026-11-19,IC 3638,Leuven,Brussels-North,17:21,2,no

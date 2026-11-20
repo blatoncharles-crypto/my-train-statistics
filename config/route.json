@@ -1,0 +1,11 @@
+{
+  "stations": {
+    "home": { "id": "BE.NMBS.008812005", "name": "Brussel-Noord" },
+    "work": { "id": "BE.NMBS.008833001", "name": "Leuven" }
+  },
+  "trains": {
+    "out":  { "train": "IC 506",  "departure": "08:08" },
+    "back": { "train": "IC 3638", "departure": "17:21" }
+  },
+  "travel_days": ["Mon", "Tue", "Wed", "Thu", "Fri"]
+}

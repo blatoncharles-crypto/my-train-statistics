@@ -122,7 +122,7 @@
 <main>
   <header>
     <h1>Commute delays</h1>
-    <p>Brussel-Noord ⇄ Leuven · weekdays</p>
+    <p id="route">&nbsp;</p>
   </header>
   <div id="app"><p class="msg">Loading…</p></div>
   <footer id="foot"></footer>
@@ -135,7 +135,10 @@ const COMP_MIN_DELAY = 30;
 const COMP_WINDOW_MONTHS = 6;
 const COMP_COUNT_CANCELLED = true; // a cancelled train counts as a long delay
 
-const STATION = { "Brussels-North": "Brussel-Noord", "Leuven": "Leuven" };
+// Only these trip statuses count anywhere on the page ("skipped" = I didn't travel).
+const COUNTED_STATUS = ["planned", "other"];
+
+let STATION = {};                       // station id -> display name, filled from config/route.json
 const name = s => STATION[s] || s;
 
 function parseCSV(text) {
@@ -144,11 +147,28 @@ function parseCSV(text) {
   return lines.filter(Boolean).map(line => {
     const vals = line.split(",");
     const r = Object.fromEntries(keys.map((k, i) => [k, vals[i]]));
+    r.from = r.from_station;
+    r.to = r.to_station;
+    r.scheduled_time = r.scheduled_departure;
     r.delay = Number(r.delay_min);
     r.cancelled = r.cancelled === "yes";
     r.day = new Date(r.date + "T00:00:00");
     return r;
-  });
+  }).filter(r => COUNTED_STATUS.includes(r.status) && (r.cancelled || r.delay_min !== ""));
+}
+
+const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function describeDays(days) {
+  const key = WEEK.filter(d => days.includes(d)).join(",");
+  if (key === "Mon,Tue,Wed,Thu,Fri") return "weekdays";
+  if (key === WEEK.join(",")) return "every day";
+  return WEEK.filter(d => days.includes(d)).join(", ");
+}
+
+function applyConfig(cfg) {
+  const { home, work } = cfg.stations;
+  STATION = { [home.id]: home.name, [work.id]: work.name };
+  document.getElementById("route").textContent = `${home.name} ⇄ ${work.name} · ${describeDays(cfg.travel_days)}`;
 }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -268,10 +288,12 @@ function render(rows) {
     `${rows.length} trips logged · last update ${fmtDate(last[0].day)} · delays measured on arrival`;
 }
 
-fetch("commute.csv", { cache: "no-store" })
-  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-  .then(text => render(parseCSV(text)))
-  .catch(e => { document.getElementById("app").innerHTML = `<p class="msg">Could not load commute.csv (${esc(e.message)}).</p>`; });
+const load = (path, as) => fetch(path, { cache: "no-store" })
+  .then(r => { if (!r.ok) throw new Error(`${path}: ${r.status}`); return r[as](); });
+
+Promise.all([load("config/route.json", "json"), load("data/trips.csv", "text")])
+  .then(([cfg, text]) => { applyConfig(cfg); render(parseCSV(text)); })
+  .catch(e => { document.getElementById("app").innerHTML = `<p class="msg">Could not load the data (${esc(e.message)}).</p>`; });
 </script>
 </body>
 </html>
