@@ -25,4 +25,6 @@ jobs:
           git add data/trips.csv
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "Log commute for $(TZ=Europe/Brussels date +%F)"
+          # a correction saved from the dashboard may have landed on main meanwhile
+          git pull --rebase origin "$GITHUB_REF_NAME"
           git push
