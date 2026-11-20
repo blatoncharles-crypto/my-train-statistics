@@ -10,9 +10,13 @@ the trains up with the iRail vehicle endpoint.
 
 Two delays are stored per trip:
   - train_delay_min:   delay of the train actually taken, at to_station
-  - journey_delay_min: actual arrival at to_station minus the scheduled arrival of the
-                       usual train that day (planned_arrival) - the NMBS definition used
-                       for compensation. For a planned trip both are the same.
+  - journey_delay_min: actual arrival at to_station minus planned_arrival - the NMBS
+                       definition used for compensation. planned_arrival is the scheduled
+                       arrival of the train I planned to take:
+                         planned trip        -> the usual train (both delays are the same)
+                         other, reason=choice     -> the chosen train itself (I left later/earlier
+                                                     by choice, so only its own delay counts)
+                         other, reason=disruption -> the usual train (it was late or cancelled)
 `cancelled` says whether the usual train was cancelled (departure at from_station,
 arrival at to_station, or every stop of the train).
 
@@ -21,7 +25,8 @@ latest row per date + direction wins). Every run applies them to trips.csv for
 every corrected day from CORRECTION_WINDOW_DAYS ago up to tomorrow:
   - skipped -> status=skipped, source=manual, both delays empty (the arrival times
                are kept, so an undo can bring the delays back)
-  - other   -> the chosen train, status=other, source=manual, delays fetched for it
+  - other   -> the chosen train, status=other, source=manual, the correction's reason
+               (choice/disruption; missing = choice), delays fetched for it
   - planned -> back to the usual train, status=planned, source=auto, delays fetched again
 
 Rules for existing rows on a day without a correction:
@@ -56,7 +61,8 @@ TRIPS_FILE = ROOT / "data" / "trips.csv"
 CORRECTIONS_FILE = ROOT / "data" / "corrections.csv"
 FIELDS = ["date", "direction", "train", "from_station", "to_station", "scheduled_departure",
           "scheduled_arrival", "planned_arrival", "actual_arrival", "train_delay_min",
-          "journey_delay_min", "status", "source", "cancelled"]
+          "journey_delay_min", "status", "reason", "source", "cancelled"]
+REASONS = ("choice", "disruption")
 RESULT_FIELDS = ["planned_arrival", "actual_arrival", "train_delay_min", "journey_delay_min"]
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 CORRECTION_WINDOW_DAYS = 14   # same window the dashboard allows corrections in
@@ -148,6 +154,8 @@ def latest_corrections():
     latest = {}
     for c in read_csv(CORRECTIONS_FILE):
         if c["direction"] in ("out", "back") and c["status"] in ("planned", "skipped", "other"):
+            if c["status"] == "other" and c.get("reason") not in REASONS:
+                c["reason"] = "choice"
             latest[(c["date"], c["direction"])] = c
     return latest
 
@@ -164,7 +172,7 @@ class Day:
         row = {"date": self.day.isoformat(), "direction": direction, "train": usual["train"],
                "from_station": from_id, "to_station": to_id, "scheduled_departure": usual["departure"],
                "scheduled_arrival": "", "planned_arrival": "", "actual_arrival": "", "train_delay_min": "",
-               "journey_delay_min": "", "status": "planned", "source": "auto", "cancelled": "false"}
+               "journey_delay_min": "", "status": "planned", "reason": "", "source": "auto", "cancelled": "false"}
         self.rows.append(row)
         self.by_key[(row["date"], direction)] = row
         return row
@@ -177,26 +185,40 @@ class Day:
             print(f"{label}: {train} - no real-time arrival data (not arrived yet, or not today)")
         return info
 
-    def measure(self, label, direction, train, from_id, to_id):
-        """Fields for a trip on `train` (the usual one or another), measured against the usual train.
-        Returns None if the usual train can't be found at all."""
+    def measure(self, label, direction, train, from_id, to_id, reason="disruption", known=None):
+        """Fields for a trip on `train` (the usual one or another).
+
+        The journey delay is measured against the usual train, except for reason=choice, where
+        the chosen train is the planned one. `known` is an existing row for the same train: if
+        iRail has no real-time data any more, its actual arrival is reused (e.g. when only the
+        reason changes after the day). Returns None if no train can be found at all."""
         usual_name = self.config["trains"][direction]["train"]
-        usual = self.fetch(label, usual_name, from_id, to_id)
+        against_usual = train == usual_name or reason != "choice"
+        usual = self.fetch(label, usual_name, from_id, to_id) if against_usual else None
         taken = usual if train == usual_name else self.fetch(label, train, from_id, to_id)
+        planned = usual if against_usual else taken
         fields = {k: "" for k in RESULT_FIELDS}
         if usual:
-            fields.update(planned_arrival=usual["scheduled_arrival"], cancelled="true" if usual["cancelled"] else "false")
+            fields["cancelled"] = "true" if usual["cancelled"] else "false"
+        if planned:
+            fields["planned_arrival"] = planned["scheduled_arrival"]
         if taken:
             fields.update(scheduled_departure=taken["scheduled_departure"], scheduled_arrival=taken["scheduled_arrival"])
             if "actual_ts" in taken:
                 fields.update(actual_arrival=hhmm(taken["actual_ts"]), train_delay_min=str(taken["train_delay_min"]))
-                if usual:
-                    fields["journey_delay_min"] = str(round((taken["actual_ts"] - usual["arr_ts"]) / 60))
+            elif known and known.get("actual_arrival") and known.get("train_delay_min") != "":
+                fields.update(actual_arrival=known["actual_arrival"], train_delay_min=known["train_delay_min"])
+        if fields["train_delay_min"] != "" and planned is taken:
+            fields["journey_delay_min"] = fields["train_delay_min"]          # planned train = train taken
+        elif taken and "actual_ts" in taken and planned:
+            fields["journey_delay_min"] = str(round((taken["actual_ts"] - planned["arr_ts"]) / 60))
+        elif fields["actual_arrival"] and fields["planned_arrival"]:
+            fields["journey_delay_min"] = str(minutes_between(fields["actual_arrival"], fields["planned_arrival"]))
         return fields if usual or taken else None
 
     def describe(self, row):
         if row["journey_delay_min"] != "":
-            extra = f" (train {row['train_delay_min']})" if row["status"] == "other" else ""
+            extra = f" (train {row['train_delay_min']}, {row['reason']})" if row["status"] == "other" else ""
             return f"journey delay {row['journey_delay_min']} min{extra}"
         return "usual train cancelled, journey delay unknown" if row["cancelled"] == "true" else "delay unknown"
 
@@ -211,20 +233,22 @@ class Day:
             if row and row["status"] == "skipped" and row["source"] == "manual":
                 return
             row = row or self.new_row(direction)
-            row.update(status="skipped", source="manual", train_delay_min="", journey_delay_min="")
+            row.update(status="skipped", reason="", source="manual", train_delay_min="", journey_delay_min="")
             print(f"{label}: marked as not travelled")
             return
 
         if status == "other":
-            train = corr["train"].strip()
-            if row and row["status"] == "other" and row["source"] == "manual" and row["train"] == train and is_complete(row):
+            train, reason = corr["train"].strip(), corr["reason"]
+            if (row and row["status"] == "other" and row["source"] == "manual" and row["train"] == train
+                    and row["reason"] == reason and is_complete(row)):
                 return
             row = row or self.new_row(direction)
-            fields = self.measure(label, direction, train, row["from_station"], row["to_station"])
-            row.update(train=train, status="other", source="manual", **{k: "" for k in RESULT_FIELDS})
+            known = dict(row) if row["train"] == train else None
+            fields = self.measure(label, direction, train, row["from_station"], row["to_station"], reason, known)
+            row.update(train=train, status="other", reason=reason, source="manual", **{k: "" for k in RESULT_FIELDS})
             if fields:
                 row.update(fields)
-            print(f"{label}: other train {train}, {self.describe(row)}")
+            print(f"{label}: other train {train} ({reason}), {self.describe(row)}")
             return
 
         # planned: undo any correction
@@ -234,7 +258,7 @@ class Day:
         keep = row["train"] == usual and row["actual_arrival"] and row["planned_arrival"]
         old = {k: row[k] for k in ("planned_arrival", "actual_arrival")}
         fields = self.measure(label, direction, usual, row["from_station"], row["to_station"])
-        row.update(train=usual, status="planned", source="auto", **{k: "" for k in RESULT_FIELDS})
+        row.update(train=usual, status="planned", reason="", source="auto", **{k: "" for k in RESULT_FIELDS})
         if fields:
             row.update(fields)
         if row["journey_delay_min"] == "" and row["cancelled"] != "true" and keep:
@@ -259,11 +283,13 @@ class Day:
                 return
             train = row["train"] if row["status"] == "other" else usual["train"]
             from_id, to_id = row["from_station"], row["to_station"]
+            reason = (row["reason"] or "choice") if row["status"] == "other" else "disruption"
         else:
             train = usual["train"]
             from_id, to_id = self.legs[direction]
+            reason = "disruption"
 
-        fields = self.measure(label, direction, train, from_id, to_id)
+        fields = self.measure(label, direction, train, from_id, to_id, reason)
         if not fields or (fields["journey_delay_min"] == "" and fields.get("cancelled") != "true"):
             return                                       # never log a trip without a real result
         row = row or self.new_row(direction)
