@@ -59,6 +59,7 @@ ROOT = Path(__file__).parent
 CONFIG_FILE = ROOT / "config" / "route.json"
 TRIPS_FILE = ROOT / "data" / "trips.csv"
 CORRECTIONS_FILE = ROOT / "data" / "corrections.csv"
+CONNECTIONS_FILE = ROOT / "data" / "connections.json"   # timetable for the dashboard's "Other train" picker
 FIELDS = ["date", "direction", "train", "from_station", "to_station", "scheduled_departure",
           "scheduled_arrival", "planned_arrival", "actual_arrival", "train_delay_min",
           "journey_delay_min", "status", "reason", "source", "cancelled"]
@@ -67,13 +68,20 @@ RESULT_FIELDS = ["planned_arrival", "actual_arrival", "train_delay_min", "journe
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 CORRECTION_WINDOW_DAYS = 14   # same window the dashboard allows corrections in
 API = "https://api.irail.be/v1/vehicle"
+CONNECTIONS_API = "https://api.irail.be/v1/connections"
+PICKER_WINDOW = (-60, 120)    # the picker offers trains from 1 h before to 2 h after the usual departure
 TZ = ZoneInfo("Europe/Brussels")
 
 
 def get_vehicle(train, day, attempts=4):
     """Return the iRail vehicle data for `train` (e.g. "IC 506") on `day`, or None if it doesn't run."""
     params = {"id": "BE.NMBS." + train.replace(" ", ""), "date": day.strftime("%d%m%y"), "format": "json", "lang": "en"}
-    req = urllib.request.Request(API + "?" + urllib.parse.urlencode(params),
+    return get_json(API, params, attempts)
+
+
+def get_json(url, params, attempts=4):
+    """GET an iRail endpoint, retrying the 502/504s it regularly returns. None on a 404."""
+    req = urllib.request.Request(url + "?" + urllib.parse.urlencode(params),
                                  headers={"User-Agent": "train-commute-tracker/1.0"})
     for i in range(attempts):
         try:
@@ -93,6 +101,79 @@ def get_vehicle(train, day, attempts=4):
 
 def hhmm(ts):
     return datetime.fromtimestamp(int(ts), TZ).strftime("%H:%M")
+
+
+def scheduled_trains(from_id, to_id, day, start, end):
+    """[[train, departure, arrival]] of the direct trains from_id -> to_id leaving between minute
+    `start` and `end` of `day` (scheduled times, HH:MM)."""
+    found, t = {}, max(0, start)
+    for _ in range(10):                        # 6 connections per page
+        if t > end:
+            break
+        data = get_json(CONNECTIONS_API, {"from": from_id, "to": to_id, "date": day.strftime("%d%m%y"),
+                                          "time": f"{t // 60:02d}{t % 60:02d}", "timesel": "departure",
+                                          "format": "json", "lang": "en", "results": 6})
+        conns = (data or {}).get("connection", [])
+        latest = t
+        for c in conns:
+            dep, arr = hhmm(c["departure"]["time"]), hhmm(c["arrival"]["time"])
+            m = int(dep[:2]) * 60 + int(dep[3:])
+            latest = max(latest, m)
+            if datetime.fromtimestamp(int(c["departure"]["time"]), TZ).date() != day or not start <= m <= end:
+                continue
+            if int((c.get("vias") or {}).get("number", 0)) == 0:
+                found[c["departure"]["vehicleinfo"]["shortname"]] = [c["departure"]["vehicleinfo"]["shortname"], dep, arr]
+        if not conns or latest < t:
+            break
+        t = latest + 1
+    return sorted(found.values(), key=lambda c: c[1])
+
+
+def update_connections(config, today):
+    """Write data/connections.json: the direct trains around the usual departure, per travel day and
+    direction, from CORRECTION_WINDOW_DAYS ago up to the next travel day. The dashboard's picker reads
+    this file instead of calling iRail from the browser (iRail answers ~15% of requests with a 504).
+    Past days already in the file are kept (their timetable doesn't change); today and the next travel
+    day are fetched again. Days outside the window are dropped, so the file stays small."""
+    try:
+        old = json.loads(CONNECTIONS_FILE.read_text()).get("days", {})
+    except (OSError, ValueError):
+        old = {}
+    travel = [today - timedelta(days=n) for n in range(CORRECTION_WINDOW_DAYS, -1, -1)]
+    nxt = today + timedelta(days=1)
+    while DAYS[nxt.weekday()] not in config["travel_days"]:
+        nxt += timedelta(days=1)
+    travel = [d for d in travel + [nxt] if DAYS[d.weekday()] in config["travel_days"]]
+    home, work = config["stations"]["home"]["id"], config["stations"]["work"]["id"]
+    legs = {"out": (home, work), "back": (work, home)}
+    days, fetched = {}, 0
+    for day in travel:
+        key = day.isoformat()
+        if day < today and set(old.get(key, {})) >= set(config["trains"]):
+            days[key] = old[key]
+            continue
+        try:
+            entry = {}
+            for direction, usual in config["trains"].items():
+                dep = int(usual["departure"][:2]) * 60 + int(usual["departure"][3:])
+                entry[direction] = scheduled_trains(*legs[direction], day, dep + PICKER_WINDOW[0], dep + PICKER_WINDOW[1])
+                if not entry[direction]:               # never store an empty timetable: it would never be re-fetched
+                    raise ValueError(f"no {direction} trains returned")
+            days[key] = entry
+            fetched += 1
+        except Exception as e:                     # never let the picker data break the evening run
+            print(f"connections for {key}: {e} - keeping what was there", file=sys.stderr)
+            if key in old:
+                days[key] = old[key]
+    lines = ",\n".join(f'  "{k}": {json.dumps(v, separators=(",", ":"))}' for k, v in sorted(days.items()))
+    text = '{"window_minutes": %s, "days": {\n%s\n}}\n' % (json.dumps(list(PICKER_WINDOW)), lines)
+    try:
+        if CONNECTIONS_FILE.read_text() == text:
+            return
+    except OSError:
+        pass
+    CONNECTIONS_FILE.write_text(text)
+    print(f"data/connections.json updated ({len(days)} days, {fetched} fetched, {len(text)} bytes)")
 
 
 def minutes_between(later, earlier):
@@ -327,6 +408,8 @@ def main():
                 d.apply_correction(direction, corr)
             elif day == run_day:
                 d.auto_update(direction)
+
+    update_connections(config, today)
 
     if json.dumps(rows, sort_keys=True) != before:
         write_trips(rows)
