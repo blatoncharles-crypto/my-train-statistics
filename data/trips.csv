@@ -9,3 +9,5 @@ date,direction,train,from_station,to_station,scheduled_departure,scheduled_arriv
 2026-11-20,back,IC 3638,BE.NMBS.008833001,BE.NMBS.008812005,17:21,17:38,17:38,17:38,0,0,planned,,auto,false
 2026-11-23,out,IC 506,BE.NMBS.008812005,BE.NMBS.008833001,08:08,08:23,08:23,08:22,-1,-1,planned,,auto,false
 2026-11-23,back,IC 3638,BE.NMBS.008833001,BE.NMBS.008812005,17:21,17:38,17:38,17:41,3,3,planned,,auto,false
+2026-11-24,out,IC 506,BE.NMBS.008812005,BE.NMBS.008833001,08:08,08:23,08:23,08:27,4,4,planned,,auto,false
+2026-11-24,back,IC 3638,BE.NMBS.008833001,BE.NMBS.008812005,17:21,17:38,17:38,17:44,6,6,planned,,auto,false
