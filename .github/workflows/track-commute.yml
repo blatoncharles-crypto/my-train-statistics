@@ -22,7 +22,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898332+github-actions[bot]@users.noreply.github.com"
-          git add data/trips.csv
+          git add data/trips.csv data/connections.json
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "Log commute for $(TZ=Europe/Brussels date +%F)"
           # a correction saved from the dashboard may have landed on main meanwhile

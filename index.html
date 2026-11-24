@@ -538,31 +538,25 @@ function openTrip(key, pickOther = false) {
   if (pickOther) showOtherTrains(sheet, r);
 }
 
+// The trains around the usual departure, from data/connections.json on this same site. The evening run
+// writes that file; the browser no longer calls iRail itself, because iRail answers about 1 in 7
+// requests with a 504 and the picker needed 6-8 of them in a row.
+let CONNECTIONS = null;
 async function fetchConnections(r) {
-  const dep = toMin(CFG.trains[r.direction].departure);
-  const start = Math.max(0, dep - 60), end = Math.min(24 * 60 - 1, dep + 120);
-  const [y, m, d] = r.date.split("-");
-  const found = new Map();
-  let t = start;
-  for (let page = 0; page < 8 && t <= end; page++) {
-    const time = String(Math.floor(t / 60)).padStart(2, "0") + String(t % 60).padStart(2, "0");
-    const url = `https://api.irail.be/v1/connections?from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}` +
-                `&date=${d}${m}${y.slice(2)}&time=${time}&timesel=departure&format=json&lang=en&results=6`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`iRail ${res.status}`);
-    const list = (await res.json()).connection || [];
-    if (!list.length) break;
-    let latest = t;
-    for (const c of list) {
-      const when = hhmm(Number(c.departure.time));
-      latest = Math.max(latest, toMin(when));
-      const direct = Number((c.vias && c.vias.number) || 0) === 0;
-      if (direct && toMin(when) >= start && toMin(when) <= end) found.set(c.departure.vehicleinfo.shortname, when);
-    }
-    if (latest < t) break;
-    t = latest + 1;
-  }
-  return [...found].map(([train, when]) => ({ train, when })).sort((a, b) => a.when.localeCompare(b.when));
+  const url = new URL("data/connections.json", location.href).href;
+  const fail = (reason, extra) => {
+    console.warn("[Other train] couldn't load the train list", { url, date: r.date, direction: r.direction, reason, extra });
+    return Object.assign(new Error(reason), { reason });
+  };
+  if (!CONNECTIONS) CONNECTIONS = fetch(url, { cache: "no-store" }).then(async res => {
+    if (!res.ok) throw fail(`HTTP ${res.status}`, res.statusText);
+    try { return await res.json(); } catch (e) { throw fail("invalid JSON", e.message); }
+  }, e => { throw fail("network error", e.message); });
+  let data;
+  try { data = await CONNECTIONS; } catch (e) { CONNECTIONS = null; throw e; }   // try again next time
+  const trains = data.days && data.days[r.date] && data.days[r.date][r.direction];
+  if (!trains) throw fail(`no timetable for ${r.date} yet`);
+  return trains.map(([train, when]) => ({ train, when }));
 }
 
 function normaliseTrain(s) {
@@ -586,8 +580,9 @@ async function showOtherTrains(sheet, r) {
     ${current ? `<button class="btn" id="keep" style="margin-top:10px;width:100%">Keep ${esc(current)}, save this reason</button>` : ""}
     <div id="train-list"><p class="text" style="margin-top:14px">Loading trains…</p></div>`;
   const listBox = box.querySelector("#train-list");
-  const typed = (msg) => {
-    listBox.innerHTML = `<p class="text" style="margin-top:14px">${esc(msg)}</p>
+  const typed = (msg, detail = "") => {
+    listBox.innerHTML = `<p class="text" style="margin-top:14px">${esc(msg)}</p>${
+      detail ? `<p class="text muted" style="font-size:12px;margin-top:-6px">(${esc(detail)})</p>` : ""}
       <div class="field"><input id="train-no" placeholder="e.g. IC 1234" autocapitalize="characters" autocomplete="off">
       <button class="btn" id="train-save">Save</button></div>`;
     const input = listBox.querySelector("#train-no");
@@ -613,9 +608,10 @@ async function showOtherTrains(sheet, r) {
     if (e.target.id === "type-it") typed("Type the train number:");
   };
   let list;
-  try { list = await fetchConnections(r); } catch (e) { list = null; }
+  let why = "";
+  try { list = await fetchConnections(r); } catch (e) { list = null; why = e.reason || e.message; }
   if (!list || !list.length) return typed(list ? "No direct trains found around that time. Type the train number:" :
-                                                 "Couldn't load the trains from iRail. Type the train number:");
+                                                 "Couldn't load the train list. Type the train number:", why);
   listBox.innerHTML = `<p class="text" style="margin-top:14px">Direct trains ${esc(name(r.from))} → ${esc(name(r.to))}:</p>
     <div class="trains">${list.map(c => `<button class="opt" data-train="${esc(c.train)}" data-when="${esc(c.when)}" aria-pressed="${c.train === current}">${esc(c.when)} · ${esc(c.train)}</button>`).join("")}</div>
     <button class="link" id="type-it">Not in the list? Type the train number</button>`;
